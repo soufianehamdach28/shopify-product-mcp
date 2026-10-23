@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Store Catalog</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <p class="eyebrow">Public catalog</p>
+      <h1>Store products</h1>
+      <p class="lede">
+        Search any Shopify store that publishes its public product catalog.
+        Results link straight to the store for current pricing and availability.
+      </p>
+
+      <form id="store-form" class="store-form">
+        <label for="store-input">Store domain</label>
+        <div class="store-controls">
+          <input
+            id="store-input"
+            name="store"
+            type="text"
+            placeholder="your-store.myshopify.com"
+            autocomplete="url"
+            spellcheck="false"
+            maxlength="253"
+          >
+          <button type="submit">Open store</button>
+        </div>
+      </form>
+
+      <form id="search-form" class="search" role="search" hidden>
+        <label class="sr-only" for="search-input">Search products</label>
+        <input
+          id="search-input"
+          name="q"
+          type="search"
+          placeholder="Search by name, type, or description…"
+          autocomplete="off"
+          maxlength="120"
+        >
+        <button type="submit">Search</button>
+      </form>
+
+      <div id="filters" class="filters" hidden>
+        <label class="filter" for="collection-select">Collection</label>
+        <input
+          id="collection-filter"
+          class="collection-filter"
+          type="search"
+          placeholder="Filter collections…"
+          aria-label="Filter collections"
+          autocomplete="off"
+          hidden
+        >
+        <select id="collection-select">
+          <option value="">All products</option>
+        </select>
+      </div>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="welcome" class="welcome">
+      <h2>Search any public Shopify store</h2>
+      <p>
+        Enter a store domain above to load its public collections and products.
+        The store must allow the <code>/products.json</code> endpoint.
+      </p>
+      <p class="welcome-example">
+        Try
+        <button type="button" class="link-button" data-store="allbirds.com">allbirds.com</button>
+        to see how it works.
+      </p>
+    </section>
+
+    <section id="results" class="grid" aria-label="Products"></section>
+    <p id="empty" class="empty" hidden></p>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>
+        Prices and availability come from the store's public
+        <code>/products.json</code> and <code>/collections.json</code>
+        endpoints. Currency may not be reported. Always confirm on the store
+        before buying.
+      </p>
+      <p>
+        MCP clients can connect to <code id="mcp-endpoint">/mcp</code>
+        using Streamable HTTP.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

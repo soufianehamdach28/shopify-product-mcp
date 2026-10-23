@@ -1,0 +1,27 @@
+services:
+  app:
+    image: ghcr.io/soufianehamdach28/shopify-product-mcp:latest
+    container_name: shopify-product-mcp
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      # Set PUBLIC_HOST in .env to the public IP or domain users will visit,
+      # without http:// and without a port.
+      ALLOWED_HOSTS: ${PUBLIC_HOST:?Set PUBLIC_HOST in .env to your VM public IP or domain}
+      ALLOWED_ORIGINS: ${PUBLIC_HOST:?Set PUBLIC_HOST in .env to your VM public IP or domain}
+    ports:
+      - "${PUBLIC_PORT:-3000}:3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

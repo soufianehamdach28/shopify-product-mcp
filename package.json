@@ -1,0 +1,33 @@
+{
+  "name": "shopify-product-mcp",
+  "version": "1.1.0",
+  "description": "MCP server and web UI for searching public Shopify store catalogs and collections",
+  "private": true,
+  "main": "dist/stdio.js",
+  "scripts": {
+    "dev": "tsx src/stdio.ts",
+    "dev:web": "tsx watch src/web.ts",
+    "build": "tsc",
+    "start": "node dist/web.js",
+    "start:stdio": "node dist/stdio.js",
+    "test": "tsx --test src/*.test.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/node": "^2.1.1",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "dotenv": "^18.0.9",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
