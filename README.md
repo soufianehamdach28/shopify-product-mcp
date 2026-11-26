@@ -59,8 +59,9 @@ Shareable URLs look like:
 | Route | Description |
 | --- | --- |
 | `GET /` | Browser UI |
+| `GET /api/overview?store=` | Store catalog statistics, vendors, product types, and price range |
 | `GET /api/collections?store=` | Collections with handles and product counts |
-| `GET /api/products?store=&q=&limit=&collection=` | Search/browse products (`limit` 1–50) |
+| `GET /api/products?store=&q=&limit=&collection=&min_price=&max_price=&in_stock=&vendor=&type=&sort=` | Search/browse products with filters and sorting (`limit` 1–50) |
 | `GET /api/products/:handle?store=` | Product by handle |
 | `POST/GET/DELETE /mcp` | MCP Streamable HTTP endpoint |
 | `GET /healthz` | Health check |
@@ -71,12 +72,14 @@ Shareable URLs look like:
 
 | Tool | Arguments |
 | --- | --- |
-| `search_products` | `query`, `limit` (1–20), optional `collection`, optional `store` |
+| `search_products` | `query`, `limit` (1–50), optional `collection`, optional `min_price`, optional `max_price`, optional `in_stock_only`, optional `vendor`, optional `product_type`, optional `sort_by` (`relevance`, `price_asc`, `price_desc`, `title_asc`, `title_desc`), optional `store` |
+| `get_product` | `handle`, optional `store` |
+| `compare_products` | `handles` (2–5 product handles), optional `store` |
+| `get_store_overview` | optional `store` |
 | `list_collections` | optional `query`, `limit` (1–500), optional `store` |
 | `list_collection_products` | `collection`, `limit` (1–50), optional `store` |
-| `get_product` | `handle`, optional `store` |
 
-Example: search within one collection:
+Example: search and filter within one collection:
 
 ```json
 {
@@ -85,7 +88,23 @@ Example: search within one collection:
     "store": "allbirds.com",
     "collection": "shoes",
     "query": "runner",
+    "min_price": 50,
+    "max_price": 150,
+    "in_stock_only": true,
+    "sort_by": "price_asc",
     "limit": 5
+  }
+}
+```
+
+Example: compare products side-by-side:
+
+```json
+{
+  "name": "compare_products",
+  "arguments": {
+    "store": "allbirds.com",
+    "handles": ["mens-tree-runners", "mens-wool-runners"]
   }
 }
 ```

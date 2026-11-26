@@ -6,11 +6,14 @@ import {
   formatProduct,
   getCollectionProducts,
   getCollections,
+  getProductByHandle,
   getProducts,
+  getStoreOverview,
   listCollections,
   matchesQuery,
   normalizeStoreInput,
   resolveStoreSource,
+  searchCatalog,
   StoreInputError,
   type ShopifyCollection,
   type ShopifyProduct
@@ -358,6 +361,130 @@ test("getCollectionProducts scopes requests to one collection and caches", async
 
     await getCollectionProducts({ baseUrl }, "shoes");
     assert.equal(requestedUrls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("searchCatalog filters by price, stock, vendor, and sorts", async () => {
+  const originalFetch = globalThis.fetch;
+  const baseUrl = `https://search-filter-test-${Date.now()}.example.com`;
+
+  const products: ShopifyProduct[] = [
+    makeProduct({
+      id: 1,
+      title: "Budget Running Shoes",
+      handle: "budget-running-shoes",
+      vendor: "Nike",
+      product_type: "Shoes",
+      variants: [{ id: 101, title: "8", price: "30.00", available: true }]
+    }),
+    makeProduct({
+      id: 2,
+      title: "Premium Running Shoes",
+      handle: "premium-running-shoes",
+      vendor: "Nike",
+      product_type: "Shoes",
+      variants: [{ id: 102, title: "9", price: "120.00", available: false }]
+    }),
+    makeProduct({
+      id: 3,
+      title: "Cotton Running Socks",
+      handle: "cotton-running-socks",
+      vendor: "Adidas",
+      product_type: "Apparel",
+      variants: [{ id: 103, title: "M", price: "15.00", available: true }]
+    })
+  ];
+
+  globalThis.fetch = (async () => {
+    return new Response(JSON.stringify({ products }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }) as typeof fetch;
+
+  try {
+    const source = { baseUrl };
+
+    // Search keyword with relevance scoring
+    const searchRes = await searchCatalog(source, "running shoes", 10);
+    assert.equal(searchRes.length, 2);
+    assert.equal(searchRes[0].handle.includes("running-shoes"), true);
+
+    // Filter by maxPrice
+    const cheap = await searchCatalog(source, "", 10, { maxPrice: 50 });
+    assert.equal(cheap.length, 2); // 30.00 and 15.00
+
+    // Filter by minPrice
+    const expensive = await searchCatalog(source, "", 10, { minPrice: 100 });
+    assert.equal(expensive.length, 1);
+    assert.equal(expensive[0].handle, "premium-running-shoes");
+
+    // Filter by inStockOnly
+    const inStock = await searchCatalog(source, "", 10, { inStockOnly: true });
+    assert.equal(inStock.length, 2);
+    assert.equal(inStock.some((p) => p.handle === "premium-running-shoes"), false);
+
+    // Filter by vendor
+    const adidasOnly = await searchCatalog(source, "", 10, { vendor: "Adidas" });
+    assert.equal(adidasOnly.length, 1);
+    assert.equal(adidasOnly[0].vendor, "Adidas");
+
+    // Sort by price_desc
+    const sortedDesc = await searchCatalog(source, "", 10, { sortBy: "price_desc" });
+    assert.equal(sortedDesc[0].variants[0].price, "120.00");
+    assert.equal(sortedDesc.at(-1)?.variants[0].price, "15.00");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("getStoreOverview aggregates store statistics", async () => {
+  const originalFetch = globalThis.fetch;
+  const baseUrl = `https://overview-test-${Date.now()}.example.com`;
+
+  const products: ShopifyProduct[] = [
+    makeProduct({
+      id: 1,
+      vendor: "BrandA",
+      product_type: "Sneakers",
+      variants: [{ id: 101, title: "8", price: "50.00", available: true }]
+    }),
+    makeProduct({
+      id: 2,
+      vendor: "BrandB",
+      product_type: "Apparel",
+      variants: [{ id: 102, title: "M", price: "150.00", available: true }]
+    })
+  ];
+
+  const collections: ShopifyCollection[] = [
+    { id: 1, title: "All Products", handle: "all" },
+    { id: 2, title: "Summer Sale", handle: "summer-sale" }
+  ];
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input : input.url);
+    if (url.pathname.includes("/collections.json")) {
+      return new Response(JSON.stringify({ collections }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    return new Response(JSON.stringify({ products }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }) as typeof fetch;
+
+  try {
+    const overview = await getStoreOverview({ baseUrl });
+    assert.equal(overview.totalProducts, 2);
+    assert.equal(overview.totalCollections, 1); // ignores 'all'
+    assert.deepEqual(overview.vendors, ["BrandA", "BrandB"]);
+    assert.deepEqual(overview.productTypes, ["Apparel", "Sneakers"]);
+    assert.deepEqual(overview.priceRange, { minPrice: 50, maxPrice: 150 });
   } finally {
     globalThis.fetch = originalFetch;
   }

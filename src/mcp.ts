@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import {
   getProductByHandle,
+  getStoreOverview,
   listCollections,
   resolveStoreSource,
   searchCatalog,
@@ -70,23 +71,51 @@ export function createProductServer(config: AppConfig): McpServer {
     "search_products",
     {
       description:
-        "Search products in a store's public catalog. " +
-        "Optionally restrict results to one collection.",
+        "Search and filter products in a store's public catalog. " +
+        "Supports collection filtering, price bounds, in-stock filtering, vendor, and sorting.",
       inputSchema: {
-        query: z.string().min(1).max(120),
-        limit: z.number().int().min(1).max(20).default(10),
+        query: z.string().max(120).default("").describe("Search keyword or product name."),
+        limit: z.number().int().min(1).max(50).default(10),
         collection: collectionSchema.optional(),
+        min_price: z.number().min(0).optional().describe("Minimum variant price filter."),
+        max_price: z.number().min(0).optional().describe("Maximum variant price filter."),
+        in_stock_only: z.boolean().optional().describe("Only return products with at least one variant in stock."),
+        vendor: z.string().max(100).optional().describe("Filter by vendor or brand name."),
+        product_type: z.string().max(100).optional().describe("Filter by product category or type."),
+        sort_by: z
+          .enum(["relevance", "price_asc", "price_desc", "title_asc", "title_desc"])
+          .default("relevance")
+          .describe("Sort order for results."),
         store: storeSchema
       }
     },
-    async ({ query, limit, collection, store }) => {
+    async ({
+      query,
+      limit,
+      collection,
+      min_price,
+      max_price,
+      in_stock_only,
+      vendor,
+      product_type,
+      sort_by,
+      store
+    }) => {
       try {
         const source = resolveSource(config, store);
         const matches = await searchCatalog(
           source,
           query,
           limit,
-          collection ?? null
+          {
+            collection: collection ?? null,
+            minPrice: min_price ?? null,
+            maxPrice: max_price ?? null,
+            inStockOnly: in_stock_only ?? null,
+            vendor: vendor ?? null,
+            productType: product_type ?? null,
+            sortBy: sort_by
+          }
         );
 
         return textResult({
@@ -219,6 +248,76 @@ export function createProductServer(config: AppConfig): McpServer {
           error instanceof Error
             ? error.message
             : "Product lookup failed."
+        );
+      }
+    }
+  );
+
+  server.registerTool(
+    "compare_products",
+    {
+      description:
+        "Compare multiple products (between 2 and 5) by their handles side-by-side " +
+        "to inspect prices, available variants, and specs.",
+      inputSchema: {
+        handles: z
+          .array(z.string().min(1).max(200).regex(/^[a-zA-Z0-9-]+$/))
+          .min(2)
+          .max(5)
+          .describe("Array of product handles to compare (2 to 5 handles)."),
+        store: storeSchema
+      }
+    },
+    async ({ handles, store }) => {
+      try {
+        const source = resolveSource(config, store);
+        const items = await Promise.all(
+          handles.map(async (handle) => {
+            const product = await getProductByHandle(source, handle);
+            return {
+              handle,
+              found: Boolean(product),
+              product: product ?? null
+            };
+          })
+        );
+
+        return textResult({
+          store: source.baseUrl,
+          total: handles.length,
+          compared: items
+        });
+      } catch (error) {
+        return errorResult(
+          error instanceof Error
+            ? error.message
+            : "Product comparison failed."
+        );
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_store_overview",
+    {
+      description:
+        "Get a high-level summary of a Shopify store: total public product count, " +
+        "number of collections, active brand vendors, product categories, and price ranges.",
+      inputSchema: {
+        store: storeSchema
+      }
+    },
+    async ({ store }) => {
+      try {
+        const source = resolveSource(config, store);
+        const overview = await getStoreOverview(source);
+
+        return textResult(overview);
+      } catch (error) {
+        return errorResult(
+          error instanceof Error
+            ? error.message
+            : "Store overview failed."
         );
       }
     }

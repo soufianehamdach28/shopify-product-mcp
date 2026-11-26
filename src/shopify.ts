@@ -20,6 +20,7 @@ export type ShopifyProduct = {
   body_html?: string | null;
   product_type?: string;
   vendor?: string;
+  tags?: string[] | string;
   images?: ShopifyImage[];
   variants: ShopifyVariant[];
 };
@@ -61,7 +62,7 @@ export type FormattedVariant = {
   title: string;
   sku: string | null;
   price: string;
-  currency: null;
+  currency: string | null;
   available: boolean;
 };
 
@@ -73,9 +74,32 @@ export type FormattedProduct = {
   description: string;
   productType: string | null;
   vendor: string | null;
+  tags: string[];
   imageUrl: string | null;
   variants: FormattedVariant[];
   note: string;
+};
+
+export type StoreOverview = {
+  store: string;
+  totalProducts: number;
+  totalCollections: number;
+  vendors: string[];
+  productTypes: string[];
+  priceRange: {
+    minPrice: number;
+    maxPrice: number;
+  } | null;
+};
+
+export type SearchCatalogOptions = {
+  collection?: string | null;
+  minPrice?: number | null;
+  maxPrice?: number | null;
+  inStockOnly?: boolean | null;
+  vendor?: string | null;
+  productType?: string | null;
+  sortBy?: "relevance" | "price_asc" | "price_desc" | "title_asc" | "title_desc";
 };
 
 export type FormattedCollection = {
@@ -570,21 +594,97 @@ export function cleanHtml(value = ""): string {
   return stripHtml(value).slice(0, 1500);
 }
 
+function parseTags(tags: string[] | string | undefined): string[] {
+  if (Array.isArray(tags)) {
+    return tags.map((t) => String(t).trim()).filter(Boolean);
+  }
+  if (typeof tags === "string") {
+    return tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+export function calculateScore(
+  product: ShopifyProduct,
+  normalizedQuery: string
+): number {
+  if (!normalizedQuery) {
+    return 1;
+  }
+
+  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const title = (product.title || "").toLowerCase();
+  const productType = (product.product_type || "").toLowerCase();
+  const vendor = (product.vendor || "").toLowerCase();
+  const tags = parseTags(product.tags).map((t) => t.toLowerCase());
+  const body = stripHtml(product.body_html ?? "").toLowerCase();
+
+  let score = 0;
+
+  // Exact phrase match in title
+  if (title === normalizedQuery) {
+    score += 100;
+  } else if (title.includes(normalizedQuery)) {
+    score += 50;
+  }
+
+  for (const token of queryTokens) {
+    if (title.includes(token)) {
+      score += 20;
+    }
+    if (tags.some((t) => t === token)) {
+      score += 15;
+    } else if (tags.some((t) => t.includes(token))) {
+      score += 10;
+    }
+    if (productType.includes(token)) {
+      score += 12;
+    }
+    if (vendor.includes(token)) {
+      score += 8;
+    }
+    if (body.includes(token)) {
+      score += 3;
+    }
+  }
+
+  return score;
+}
+
 export function matchesQuery(
   product: ShopifyProduct,
   normalizedQuery: string
 ): boolean {
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const tags = parseTags(product.tags).join(" ");
   const haystack =
     `${product.title} ${stripHtml(product.body_html ?? "")} ` +
-    `${product.product_type ?? ""}`;
+    `${product.product_type ?? ""} ${product.vendor ?? ""} ${tags}`;
 
-  return haystack.toLowerCase().includes(normalizedQuery);
+  const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const lowerHaystack = haystack.toLowerCase();
+
+  // If query consists of multiple tokens, check that all or exact phrase match
+  if (lowerHaystack.includes(normalizedQuery)) {
+    return true;
+  }
+
+  return queryTokens.every((token) => lowerHaystack.includes(token));
 }
 
 export function formatProduct(
   source: CatalogSource,
-  product: ShopifyProduct
+  product: ShopifyProduct,
+  currency: string | null = null
 ): FormattedProduct {
+  const tags = parseTags(product.tags);
+
   return {
     id: product.id,
     title: product.title,
@@ -593,13 +693,14 @@ export function formatProduct(
     description: cleanHtml(product.body_html ?? ""),
     productType: product.product_type ?? null,
     vendor: product.vendor ?? null,
+    tags,
     imageUrl: product.images?.[0]?.src ?? null,
     variants: product.variants.map((variant) => ({
       id: variant.id,
       title: variant.title,
       sku: variant.sku ?? null,
       price: variant.price,
-      currency: null,
+      currency,
       available: variant.available
     })),
     note: PRODUCT_NOTE
@@ -638,19 +739,89 @@ export async function searchCatalog(
   source: CatalogSource,
   query: string,
   limit: number,
-  collection?: string | null
+  options?: SearchCatalogOptions | string | null
 ): Promise<FormattedProduct[]> {
-  const products = collection
-    ? await getCollectionProducts(source, collection)
+  const opts: SearchCatalogOptions =
+    typeof options === "string" ? { collection: options } : options ?? {};
+
+  const products = opts.collection
+    ? await getCollectionProducts(source, opts.collection)
     : await getProducts(source);
+
   const normalizedQuery = query.trim().toLowerCase();
 
-  return products
-    .filter((product) =>
-      normalizedQuery === ""
-        ? true
-        : matchesQuery(product, normalizedQuery)
-    )
+  // Filter products
+  let matched = products.filter((product) => {
+    if (normalizedQuery && !matchesQuery(product, normalizedQuery)) {
+      return false;
+    }
+
+    if (opts.vendor) {
+      const vendorLower = (product.vendor || "").toLowerCase();
+      if (!vendorLower.includes(opts.vendor.toLowerCase())) {
+        return false;
+      }
+    }
+
+    if (opts.productType) {
+      const typeLower = (product.product_type || "").toLowerCase();
+      if (!typeLower.includes(opts.productType.toLowerCase())) {
+        return false;
+      }
+    }
+
+    const prices = product.variants.map((v) => Number(v.price)).filter((p) => !isNaN(p));
+    const minP = prices.length > 0 ? Math.min(...prices) : 0;
+    const maxP = prices.length > 0 ? Math.max(...prices) : 0;
+
+    if (opts.minPrice != null && maxP < opts.minPrice) {
+      return false;
+    }
+
+    if (opts.maxPrice != null && minP > opts.maxPrice) {
+      return false;
+    }
+
+    if (opts.inStockOnly) {
+      const hasAvailable = product.variants.some((v) => v.available);
+      if (!hasAvailable) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  // Sort products
+  const sortBy = opts.sortBy ?? "relevance";
+
+  if (sortBy === "relevance" && normalizedQuery) {
+    matched = matched
+      .map((product) => ({
+        product,
+        score: calculateScore(product, normalizedQuery)
+      }))
+      .sort((a, b) => b.score - a.score)
+      .map((item) => item.product);
+  } else if (sortBy === "price_asc") {
+    matched.sort((a, b) => {
+      const aMin = Math.min(...a.variants.map((v) => Number(v.price) || 0));
+      const bMin = Math.min(...b.variants.map((v) => Number(v.price) || 0));
+      return aMin - bMin;
+    });
+  } else if (sortBy === "price_desc") {
+    matched.sort((a, b) => {
+      const aMax = Math.max(...a.variants.map((v) => Number(v.price) || 0));
+      const bMax = Math.max(...b.variants.map((v) => Number(v.price) || 0));
+      return bMax - aMax;
+    });
+  } else if (sortBy === "title_asc") {
+    matched.sort((a, b) => a.title.localeCompare(b.title));
+  } else if (sortBy === "title_desc") {
+    matched.sort((a, b) => b.title.localeCompare(a.title));
+  }
+
+  return matched
     .slice(0, limit)
     .map((product) => formatProduct(source, product));
 }
@@ -665,4 +836,50 @@ export async function getProductByHandle(
   );
 
   return product ? formatProduct(source, product) : null;
+}
+
+export async function getStoreOverview(
+  source: CatalogSource
+): Promise<StoreOverview> {
+  const [products, collections] = await Promise.all([
+    getProducts(source),
+    getCollections(source)
+  ]);
+
+  const vendors = Array.from(
+    new Set(
+      products
+        .map((p) => p.vendor?.trim())
+        .filter((v): v is string => Boolean(v))
+    )
+  ).sort();
+
+  const productTypes = Array.from(
+    new Set(
+      products
+        .map((p) => p.product_type?.trim())
+        .filter((t): t is string => Boolean(t))
+    )
+  ).sort();
+
+  const allPrices = products.flatMap((p) =>
+    p.variants.map((v) => Number(v.price)).filter((price) => !isNaN(price))
+  );
+
+  const priceRange =
+    allPrices.length > 0
+      ? {
+          minPrice: Math.min(...allPrices),
+          maxPrice: Math.max(...allPrices)
+        }
+      : null;
+
+  return {
+    store: source.baseUrl,
+    totalProducts: products.length,
+    totalCollections: collections.filter((c) => c.handle !== "all").length,
+    vendors,
+    productTypes,
+    priceRange
+  };
 }

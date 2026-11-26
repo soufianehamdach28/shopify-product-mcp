@@ -17,6 +17,7 @@ import {
 import { createProductServer } from "./mcp.js";
 import {
   getProductByHandle,
+  getStoreOverview,
   listCollections,
   loadConfig,
   resolveStoreSource,
@@ -263,12 +264,33 @@ async function serveApi(
       return true;
     }
 
+    const minPriceRaw = url.searchParams.get("min_price");
+    const maxPriceRaw = url.searchParams.get("max_price");
+    const minPrice = minPriceRaw ? Number(minPriceRaw) : null;
+    const maxPrice = maxPriceRaw ? Number(maxPriceRaw) : null;
+    const inStockOnly = url.searchParams.get("in_stock") === "true";
+    const vendor = (url.searchParams.get("vendor") ?? "").trim() || null;
+    const productType = (url.searchParams.get("type") ?? "").trim() || null;
+    const sortByRaw = url.searchParams.get("sort");
+    const allowedSorts = ["relevance", "price_asc", "price_desc", "title_asc", "title_desc"] as const;
+    const sortBy = allowedSorts.includes(sortByRaw as typeof allowedSorts[number])
+      ? (sortByRaw as typeof allowedSorts[number])
+      : "relevance";
+
     try {
       const products = await searchCatalog(
         source,
         query,
         limit,
-        collection || null
+        {
+          collection: collection || null,
+          minPrice: minPrice !== null && !isNaN(minPrice) ? minPrice : null,
+          maxPrice: maxPrice !== null && !isNaN(maxPrice) ? maxPrice : null,
+          inStockOnly: inStockOnly || null,
+          vendor,
+          productType,
+          sortBy
+        }
       );
 
       sendJson(res, 200, {
@@ -280,6 +302,30 @@ async function serveApi(
     } catch (error) {
       sendJson(res, 502, {
         error: errorMessage(error, "Product search failed.")
+      });
+    }
+
+    return true;
+  }
+
+  if (url.pathname === "/api/overview") {
+    if (req.method !== "GET") {
+      sendMethodNotAllowed(res, "GET");
+      return true;
+    }
+
+    const source = resolveRequestStore(res, url);
+
+    if (!source) {
+      return true;
+    }
+
+    try {
+      const overview = await getStoreOverview(source);
+      sendJson(res, 200, overview);
+    } catch (error) {
+      sendJson(res, 502, {
+        error: errorMessage(error, "Store overview failed.")
       });
     }
 

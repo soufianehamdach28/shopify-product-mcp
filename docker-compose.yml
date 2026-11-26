@@ -1,5 +1,6 @@
 services:
   app:
+    build: .
     image: ghcr.io/soufianehamdach28/shopify-product-mcp:latest
     container_name: shopify-product-mcp
     restart: unless-stopped
